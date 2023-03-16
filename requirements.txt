@@ -1,0 +1,4 @@
+cartopy==0.21.1
+hvplot==0.8.2
+geoviews==1.9.6
+scikit-learn==1.2.2

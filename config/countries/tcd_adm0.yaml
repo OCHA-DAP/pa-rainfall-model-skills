@@ -1,0 +1,6 @@
+iso3: tcd
+codab:
+  hdx_dataset_name: tcd_admbnda_adm0_ocha.zip
+  layer_base_name: tcd_admbnda_adm{admin_level}_ocha.shp
+  admin_level_max: 0
+
