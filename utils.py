@@ -12,14 +12,24 @@ import numpy as np
 import warnings
 import copy
 
-from ochanticipy import (
-    create_custom_country_config,
-    CodAB,
-    GeoBoundingBox,
-    IriForecastDominant,
-    IriForecastProb,
-    ChirpsMonthly,
-)
+try:
+    from ochanticipy import (
+        create_custom_country_config,
+        CodAB,
+        GeoBoundingBox,
+        IriForecastDominant,
+        IriForecastProb,
+        ChirpsMonthly,
+    )
+except:
+    from aatoolbox import (
+        create_custom_country_config,
+        CodAB,
+        GeoBoundingBox,
+        IriForecastDominant,
+        IriForecastProb,
+        ChirpsMonthly,
+    ) 
 
 
 # Months and seasons variables and functions
