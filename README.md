@@ -4,7 +4,7 @@ This repo includes the code used in the project **Rainfall model skill assessmen
 
 ## Usage
 
-The Python version currently used is 3.9. Follow the steps to install [OCHA Anticipy](https://aa-toolbox.readthedocs.io/en/latest/quickstart.html). Then install the remaining dependencies from ``requirements.txt``:
+The Python version currently used is 3.9. Follow the steps to install [OCHA AnticiPy](https://aa-toolbox.readthedocs.io/en/latest/quickstart.html). Then install the remaining dependencies from ``requirements.txt``:
 
 ```shell
 pip install -r requirements.txt
