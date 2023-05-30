@@ -130,3 +130,6 @@ dmypy.json
 
 # Netcdf
 *.nc
+
+# VS code
+.vscode/

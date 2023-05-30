@@ -1,35 +1,33 @@
 # Import the necessary libraries
-import cdsapi
-import copy
-import xarray as xr
 import calendar
 import cartopy.crs as ccrs
-import cartopy
-import matplotlib.pyplot as plt
-import matplotlib.colors as colors
-from matplotlib.gridspec import GridSpec
-import numpy as np
-import warnings
+import cdsapi
 import copy
+import geopandas as gpd
+import geoviews as gv
+import geoviews.feature as gf
+import matplotlib.colors as colors
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import warnings
+import xagg as xa
+import xarray as xr
 
-try:
-    from ochanticipy import (
-        create_custom_country_config,
-        CodAB,
-        GeoBoundingBox,
-        IriForecastDominant,
-        IriForecastProb,
-        ChirpsMonthly,
-    )
-except:
-    from aatoolbox import (
-        create_custom_country_config,
-        CodAB,
-        GeoBoundingBox,
-        IriForecastDominant,
-        IriForecastProb,
-        ChirpsMonthly,
-    ) 
+from bokeh.models import FixedTicker
+from IPython.display import display
+from matplotlib.gridspec import GridSpec
+from sklearn.metrics import accuracy_score, f1_score
+
+from ochanticipy import (
+    create_custom_country_config,
+    CodAB,
+    GeoBoundingBox,
+    IriForecastDominant,
+    IriForecastProb,
+    ChirpsMonthly,
+)
 
 
 # Months and seasons variables and functions
@@ -38,7 +36,7 @@ months = [m[0] for m in list(calendar.month_name)[1:]]
 months = months + months[:2]
 seasons = [
     f"{months[i]}{months[i+1]}{months[i+2]}" for i in range(len(months) - 2)
-    ]
+]
 
 
 def extend_list(lst_initial, lst, length):
@@ -61,9 +59,9 @@ def extend_list(lst_initial, lst, length):
     --------
     extended_list (list): The extended list.
     """
-    return (
-        lst_initial + (lst * ((length + len(lst) - 1) // len(lst)))
-        )[:length]
+    return (lst_initial + (lst * ((length + len(lst) - 1) // len(lst))))[
+        :length
+    ]
 
 
 def from_monthly_to_seasonal(ds, iri_data=False, retain_year=False):
@@ -112,6 +110,7 @@ def from_monthly_to_seasonal(ds, iri_data=False, retain_year=False):
 
 # Coarse resolution
 
+
 def coarser_coord_by_amount(ds, coord_name, factor, method="linear"):
     """
     Coarsens a given coordinate in a dataset by a given factor.
@@ -136,7 +135,7 @@ def coarser_coord_by_amount(ds, coord_name, factor, method="linear"):
     if not coord_name in ds.coords:
         raise ValueError(
             f"The Dataset does not contain the coordinate {coord_name}."
-            )
+        )
     old_coord = ds[coord_name].values.tolist()
     ind_list = [
         int(factor / 2 + n * factor)
@@ -148,9 +147,8 @@ def coarser_coord_by_amount(ds, coord_name, factor, method="linear"):
     else:
         new_coord = [(old_coord[i] + old_coord[i - 1]) / 2 for i in ind_list]
     ds_coarser = ds.interp(
-        coords={coord_name: np.array(new_coord)}, 
-        method=method
-        )
+        coords={coord_name: np.array(new_coord)}, method=method
+    )
     return ds_coarser.interpolate_na
 
 
@@ -181,17 +179,18 @@ def coarser_coords_adapt_do_ds(ds, ds_ref, coord_names, method="linear"):
                 "The reference Dataset does not contain the coordinate "
                 f"{coord_name}."
             )
-        if abs(
-            np.diff(ds_ref[coord_name])[0]
-            ) < abs(np.diff(ds[coord_name])[0]):
+        if abs(np.diff(ds_ref[coord_name])[0]) < abs(
+            np.diff(ds[coord_name])[0]
+        ):
             raise ValueError(
                 "The resolution of the reference Dataset is lower than the "
                 "one of your Dataset!"
             )
         if (
             not abs(
-            np.diff(ds_ref[coord_name])[0] / np.diff(ds[coord_name])[0]
-            ) % 1
+                np.diff(ds_ref[coord_name])[0] / np.diff(ds[coord_name])[0]
+            )
+            % 1
             > 0.001
         ):
             raise ValueError(
@@ -200,7 +199,7 @@ def coarser_coords_adapt_do_ds(ds, ds_ref, coord_names, method="linear"):
             )
         factor = abs(
             int(np.diff(ds_ref[coord_name])[0] / np.diff(ds[coord_name])[0])
-            )
+        )
         if factor == 1:
             warnings.warn("The two datasets have the same resolution")
             ds = ds.copy()
@@ -224,8 +223,8 @@ def shift_coord_by_amount(ds, coord_name, shift_amount, method="linear"):
     Inputs
     --------
     ds (xarray.Dataset): the dataset to be shifted coord_name (str): the name
-        of the coordinate to be shifted shift_amount (float): the amount by 
-        which to shift the coordinate values method (str): the interpolation 
+        of the coordinate to be shifted shift_amount (float): the amount by
+        which to shift the coordinate values method (str): the interpolation
         method used to shift the coordinates (default is 'linear').
 
     Returns
@@ -235,7 +234,7 @@ def shift_coord_by_amount(ds, coord_name, shift_amount, method="linear"):
     if not coord_name in ds.coords:
         raise ValueError(
             f"The Dataset does not contain the coordinate {coord_name}."
-            )
+        )
     new_coord = ds[coord_name] + shift_amount
     ds_shifted = ds.interp(coords={coord_name: new_coord}, method=method)
     ds_shifted[coord_name] = new_coord
@@ -272,28 +271,24 @@ def shift_coords_adapt_do_ds(ds, ds_ref, coord_names, method="linear"):
         if ds_res != ds_ref_res:
             raise ValueError(
                 "The resolutions of the two Datasets are different!"
-                )
+            )
         shift_amount = ds_ref[coord_name][0] - ds[coord_name][0]
         if shift_amount == 0:
             warnings.warn("The two datasets have the same coordinates.")
             new_ds = ds.copy()
         else:
             new_ds = shift_coord_by_amount(
-                ds=ds, 
-                coord_name=coord_name, 
-                shift_amount=shift_amount, 
-                method=method
+                ds=ds,
+                coord_name=coord_name,
+                shift_amount=shift_amount,
+                method=method,
             )
     return new_ds
 
 
 def coords_adapt_do_ds(
-        ds, 
-        ds_ref, 
-        coord_names, 
-        two_step_comp=False, 
-        method="linear"
-        ):
+    ds, ds_ref, coord_names, two_step_comp=False, method="linear"
+):
     """
     Adjusts the coordinates of the input dataset `ds` to match those of the
     reference dataset `ds_ref` and returns a new dataset with updated
@@ -336,13 +331,13 @@ def coords_adapt_do_ds(
                 )
             new_coord = ds_ref[coord_name].values
             new_ds = new_ds.interp(
-                coords={coord_name: new_coord}, 
-                method=method
-                )
+                coords={coord_name: new_coord}, method=method
+            )
     return new_ds
 
 
 # Areas
+
 
 def create_area(country_config_file):
     """
@@ -376,8 +371,8 @@ def increase_box(geobb, size=1):
     """
     Increase the size of a GeoBoundingBox object.
 
-    This function creates a copy of the input GeoBoundingBox object and 
-    increases its size by the specified amount (in degrees) in all four 
+    This function creates a copy of the input GeoBoundingBox object and
+    increases its size by the specified amount (in degrees) in all four
     directions.
 
     Inputs
@@ -388,7 +383,7 @@ def increase_box(geobb, size=1):
 
     Returns
     -------
-    geobb_enlarged (object): A copy of the input GeoBoundingBox object with 
+    geobb_enlarged (object): A copy of the input GeoBoundingBox object with
         increased size.
     geobb (object): The original GeoBoundingBox object.
     """
@@ -429,87 +424,21 @@ def restrict_to_geobb(ds, geobb):
     return ds_restricted
 
 
-# Figures
-
-def create_fig():
-    """
-    Create a figure object with a specified layout and projection.
-
-    This function creates a figure object with a specified layout using
-    the GridSpec functionality. It then creates four subplots within this
-    layout, with the fourth subplot having a specified projection using
-    the PlateCarree coordinate reference system. Finally, it adds borders
-    to this subplot.
-
-    Returns
-    --------
-    fig (matplotlib.figure.Figure): The figure object created.
-    ax1 (matplotlib.axes.Axes): The first subplot object.
-    ax2 (matplotlib.axes.Axes): The second subplot object.
-    ax3 (matplotlib.axes.Axes): The third subplot object.
-    ax4 (cartopy.mpl.geoaxes.GeoAxes): The fourth subplot object, with
-        PlateCarree projection and borders added.
-    """
-    fig = plt.figure(constrained_layout=True)
-
-    gs = GridSpec(10, 3, figure=fig)
-    ax1 = fig.add_subplot(gs[0, 0])
-    ax2 = fig.add_subplot(gs[0, 1])
-    ax3 = fig.add_subplot(gs[0, 2])
-    ax4 = fig.add_subplot(gs[1:, :], projection=ccrs.PlateCarree())
-
-    ax4.add_feature(cartopy.feature.BORDERS, edgecolor="black")
-
-    return fig, ax1, ax2, ax3, ax4
-
-
-def create_cmaps():
-    """
-    Create variables for creating heatmaps.
-    """
-    # specify the color boundaries
-    bounds = [0.35, 0.55, 0.75, 0.95]
-
-    # colormaps lower
-    colors_list = ["#ccece6", "#66c2a4", "#2ca25f"]
-    discrete_cmap2 = colors.ListedColormap(colors_list)
-    norm2 = colors.BoundaryNorm(bounds, discrete_cmap2.N)
-
-    # colormaps middle
-    colors_list = ["#edf8fb", "#edf8fb", "#edf8fb"]
-    discrete_cmap1 = colors.ListedColormap(colors_list)
-    norm1 = colors.BoundaryNorm(bounds, discrete_cmap1.N)
-
-    # colormaps upper
-    colors_list = ["#9ebcda", "#8c96c6", "#8856a7"]
-    discrete_cmap0 = colors.ListedColormap(colors_list)
-    norm0 = colors.BoundaryNorm(bounds, discrete_cmap0.N)
-
-    return (
-        norm0, 
-        norm1, 
-        norm2, 
-        discrete_cmap0, 
-        discrete_cmap1, 
-        discrete_cmap2, 
-        bounds
-    )
-
-
 # Dominant tercile
+
 
 def xarray_argmax_value(dataArray, coord_name):
     """
-    Values corresponding to the index or indices of the maximum of the 
+    Values corresponding to the index or indices of the maximum of the
         DataArray over one or more dimensions (coordinates).
 
-    If there are multiple maxima, the indices of the first one found will be 
+    If there are multiple maxima, the indices of the first one found will be
         returned.
 
     Inputs:
     --------
     dataArray (xarray.DataArray): input DataArray.
-    coord_name (str): name of the coordinate (and dimension) along which the 
+    coord_name (str): name of the coordinate (and dimension) along which the
         maximum will be calculated.
 
     Returns
@@ -525,8 +454,9 @@ def xarray_argmax_value(dataArray, coord_name):
     except:
         pass
     coord_values_list = dataArray.coords[coord_name].values.tolist()
-    coord_dict = {i: coord_values_list[i] \
-                  for i in range(len(coord_values_list))}
+    coord_dict = {
+        i: coord_values_list[i] for i in range(len(coord_values_list))
+    }
     u, inv = np.unique(argmax, return_inverse=True)
     dataArray = xr.DataArray(
         np.array([coord_dict[j] for j in u])[inv].reshape(argmax.shape),
@@ -539,7 +469,7 @@ def xarray_argmax_value(dataArray, coord_name):
 def calculate_dominant_tercile(ds_terciles):
     """
     Extract dominant tercile from tercile dataset.
-    
+
     Inputs:
     --------
     ds_terciles (xarray.Dataset): Dataset containing information on tercile
@@ -548,28 +478,29 @@ def calculate_dominant_tercile(ds_terciles):
 
     Returns
     --------
-    ds_terciles_dominant (xarray.Dataset): Dataset containing information on 
-        the tercile probabilities of the dominant tercile (the coordinate 
+    ds_terciles_dominant (xarray.Dataset): Dataset containing information on
+        the tercile probabilities of the dominant tercile (the coordinate
         'tercile' was removed by the dataset).
     """
-    ds_terciles_dominant = ds_terciles.max(
-        "tercile"
-        ).rename({"tprate": "terc_prob"})
+    ds_terciles_dominant = ds_terciles.max("tercile").rename(
+        {"tprate": "terc_prob"}
+    )
     ds_terciles_dominant["dominant_terc"] = xarray_argmax_value(
-        ds_terciles, 
-        "tercile"
-        )
+        ds_terciles, "tercile"
+    )
     return ds_terciles_dominant
 
 
 # Chirps
 
+
 def chirps_terciles_create(
-    country_config, 
-    geobb, 
-    adapt_coordinates=False, 
-    ds_ref=None, 
-    method="linear"
+    country_config,
+    geobb,
+    adapt_coordinates=False,
+    ds_ref=None,
+    method="linear",
+    verbose=True,
 ):
     """
     Download and process CHIRPS data to create tercile probabilities.
@@ -586,21 +517,25 @@ def chirps_terciles_create(
         Required if adapt_coordinates is True.
     method (str): interpolation method to use when adapting the coordinates.
         Default is 'linear'.
+    verbose (bool): If True, print details on the process.
 
     Returns
     --------
-    tercile_probs (xarray.Dataset): tercile probabilities for the forecast 
+    tercile_probs (xarray.Dataset): tercile probabilities for the forecast
         data.
     """
     if adapt_coordinates:
         geobb, geobb_original = increase_box(geobb)
-    print("Download and process data...")
+    if verbose:
+        print("Download and process data...")
     chirps_monthly = chirps_download_and_process(country_config, geobb)
-    print("Load data...")
+    if verbose:
+        print("Load data...")
     ds_chirps = chirps_load(chirps_monthly)
     ds_chirps["tprate"] = ds_chirps["tprate"].load()
     if adapt_coordinates:
-        print("Adapt coordinates...")
+        if verbose:
+            print("Adapt coordinates...")
         if ds_ref is None:
             raise ValueError(
                 "If you want to adapt coordinates you need to provide "
@@ -613,97 +548,20 @@ def chirps_terciles_create(
             method=method,
         )
         ds_chirps = restrict_to_geobb(ds_chirps, geobb_original)
-    print("Create climatology...")
+    if verbose:
+        print("Create climatology...")
     ds_chirps_seas_reference = chirps_create_reference(ds_chirps)
-    print("Calculate quantiles...")
+    if verbose:
+        print("Calculate quantiles...")
     chirps_quantiles_seas = chirps_quantile_boundaries(
         ds_chirps_seas_reference, seasons
     )
-    print("Calculate tercile probabilities...")
-    return chirps_tercile_probs(ds_chirps, chirps_quantiles_seas)
-
-
-def chirps_terciles_plot(ds_chirps_terciles, time):
-    """
-    Create a plot of the precipitation terciles for the given time.
-
-    Inputs
-    -------
-    ds_chirps_terciles (xarray Dataset): The CHIRPS dataset.
-    time (str): The time for which the plot is to be created.
-
-    Returns
-    --------
-    fig (matplotlib Figure): The matplotlib figure object of the created plot.
-    """
-    max_index = ds_chirps_terciles.argmax("tercile")
-
-    fig, ax1, ax2, ax3, ax4 = create_fig()
-    (
-        norm0,
-        norm1,
-        norm2,
-        discrete_cmap0,
-        discrete_cmap1,
-        discrete_cmap2,
-        bounds,
-    ) = create_cmaps()
-
-    c0 = (
-        ds_chirps_terciles.isel(tercile=0, drop=True)
-        .where(max_index == 0)
-        .sel(time=time)
-        .tprate.plot.pcolormesh(
-            ax=ax4, add_colorbar=False, cmap=discrete_cmap0, norm=norm0
-        )
-    )
-    c1 = (
-        ds_chirps_terciles.isel(tercile=1, drop=True)
-        .where(max_index == 1)
-        .sel(time=time)
-        .tprate.plot.pcolormesh(
-            ax=ax4, add_colorbar=False, cmap=discrete_cmap1, norm=norm1
-        )
-    )
-    c2 = (
-        ds_chirps_terciles.isel(tercile=2, drop=True)
-        .where(max_index == 2)
-        .sel(time=time)
-        .tprate.plot.pcolormesh(
-            ax=ax4, add_colorbar=False, cmap=discrete_cmap2, norm=norm2
-        )
-    )
-
-    cbar0 = fig.colorbar(
-        c0,
-        cax=ax3,
-        boundaries=bounds,
-        spacing="proportional",
-        orientation="horizontal",
-        label="Upper",
-    )
-    cbar1 = fig.colorbar(
-        c1,
-        cax=ax2,
-        boundaries=bounds,
-        spacing="proportional",
-        orientation="horizontal",
-        label="Middle",
-    )
-    cbar2 = fig.colorbar(
-        c2,
-        cax=ax1,
-        boundaries=bounds,
-        spacing="proportional",
-        orientation="horizontal",
-        label="Lower",
-    )
-
-    cbar0.ax.xaxis.set_label_position("top")
-    cbar1.ax.xaxis.set_label_position("top")
-    cbar2.ax.xaxis.set_label_position("top")
-
-    return fig
+    if verbose:
+        print("Calculate tercile probabilities...")
+    chirps_prob = chirps_tercile_probs(ds_chirps, chirps_quantiles_seas)
+    if verbose:
+        print("Done!")
+    return chirps_prob
 
 
 def chirps_download_and_process(country_config, geobb):
@@ -716,9 +574,9 @@ def chirps_download_and_process(country_config, geobb):
     Inputs
     ------
     country_config (dict): A dictionary with configuration parameters for a
-        specific country. 
+        specific country.
     geobb (GeoBoundingBox): An instance of the `GeoBoundingBox` class
-        specifying the bounding box coordinates. 
+        specifying the bounding box coordinates.
     """
     chirps_monthly = ChirpsMonthly(
         country_config=country_config, geo_bounding_box=geobb
@@ -739,10 +597,10 @@ def chirps_load(chirps_monthly):
     ds_chirps = chirps_monthly.load()
     return ds_chirps.rename(
         {
-        "X": "longitude", 
-        "Y": "latitude", 
-        "T": "time", 
-        "precipitation": "tprate"
+            "X": "longitude",
+            "Y": "latitude",
+            "T": "time",
+            "precipitation": "tprate",
         }
     ).drop_vars("spatial_ref")
 
@@ -757,8 +615,8 @@ def chirps_create_reference(chirps_monthly_data):
 
     Returns
     -------
-    ds_chirps_seas_reference (xarray Dataset): Seasonal dataset obtained by 
-        averaging the values of the original dataset for each three-month 
+    ds_chirps_seas_reference (xarray Dataset): Seasonal dataset obtained by
+        averaging the values of the original dataset for each three-month
         period.
     """
     ds_chirps_seas_reference = from_monthly_to_seasonal(chirps_monthly_data)
@@ -773,17 +631,17 @@ def chirps_quantile_boundaries(ds_chirps_seas_reference, seasons):
     Calculate the 33rd and 67th quantiles along the "time" dimension of the
     input xarray dataset for each season given in the input list. Returns an
     xarray dataset containing the quantiles for each season.
-    
+
     Inputs
     --------
-    ds_chirps_seas_reference (xarray.Dataset): Reference dataset for which the 
+    ds_chirps_seas_reference (xarray.Dataset): Reference dataset for which the
         quantiles need to be calculated.
-    seasons (list): A list containing the name of the seasons for which the 
+    seasons (list): A list containing the name of the seasons for which the
         quantiles need to be calculated.
 
     Returns
     --------
-    quantiles_seas (xarray.Dataset): An xarray dataset containing the quantiles 
+    quantiles_seas (xarray.Dataset): An xarray dataset containing the quantiles
         along the "time" dimension for each season.
     """
     for i, seas in enumerate(seasons):
@@ -799,9 +657,8 @@ def chirps_quantile_boundaries(ds_chirps_seas_reference, seasons):
             quantiles_seas = quant_seas.copy()
         else:
             quantiles_seas = xr.concat(
-                [quantiles_seas, quant_seas], 
-                dim="time"
-                )
+                [quantiles_seas, quant_seas], dim="time"
+            )
     return quantiles_seas
 
 
@@ -823,52 +680,60 @@ def chirps_tercile_probs(ds_chirps, quantiles_seas):
 
     Returns
     -------
-    ds_chirps_terciles (xarray.Dataset): dataset that includes the probability 
-        of precipitation terciles (upper, middle, lower) for each season 
-        (DJF, MAM, JJA, SON) based on the CHIRPS dataset and the corresponding 
+    ds_chirps_terciles (xarray.Dataset): dataset that includes the probability
+        of precipitation terciles (upper, middle, lower) for each season
+        (DJF, MAM, JJA, SON) based on the CHIRPS dataset and the corresponding
         quantiles.
     """
     ds_chirps_seas = from_monthly_to_seasonal(ds_chirps, retain_year=True)
 
     for j, tercile in enumerate(["upper", "middle", "lower"]):
         for i, time in enumerate(ds_chirps_seas.time.values.tolist()):
+            for k, ltime in enumerate([1, 2, 3, 4]):
+                lower_quant_seas = quantiles_seas.sel(
+                    quantile=0.33, drop=True
+                ).sel(time=time.split("-")[0], drop=True)
+                upper_quant_seas = quantiles_seas.sel(
+                    quantile=0.67, drop=True
+                ).sel(time=time.split("-")[0], drop=True)
 
-            lower_quant_seas = quantiles_seas.sel(
-                quantile=0.33, 
-                drop=True
-                ).sel(
-                time=time.split("-")[0], drop=True
-            )
-            upper_quant_seas = quantiles_seas.sel(
-                quantile=0.67, 
-                drop=True
-                ).sel(
-                time=time.split("-")[0], drop=True
-            )
+                ds_chirps_seas_ltime = ds_chirps_seas.sel(time=time, drop=True)
 
-            ds_chirps_seas_time = ds_chirps_seas.sel(time=time, drop=True)
+                if tercile == "lower":
+                    ds_chirps_terc_ltime = xr.where(
+                        ds_chirps_seas_ltime <= lower_quant_seas, 1, 0
+                    )
+                elif tercile == "upper":
+                    ds_chirps_terc_ltime = xr.where(
+                        ds_chirps_seas_ltime > upper_quant_seas, 1, 0
+                    )
+                elif tercile == "middle":
+                    ds_chirps_terc_ltime = xr.where(
+                        (ds_chirps_seas_ltime > lower_quant_seas)
+                        & (ds_chirps_seas_ltime <= upper_quant_seas),
+                        1,
+                        0,
+                    )
+                else:
+                    raise ValueError(f"Tercile {tercile} not defined")
 
-            if tercile == "lower":
-                ds_chirps_terc_time = xr.where(
-                    ds_chirps_seas_time <= lower_quant_seas, 1, 0
+                ds_chirps_terc_ltime = ds_chirps_terc_ltime.expand_dims(
+                    ["time", "ltime", "tercile"]
+                ).assign_coords(
+                    {
+                        "time": [time],
+                        "ltime": [f"{ltime}"],
+                        "tercile": [tercile],
+                    }
                 )
-            elif tercile == "upper":
-                ds_chirps_terc_time = xr.where(
-                    ds_chirps_seas_time > upper_quant_seas, 1, 0
-                )
-            elif tercile == "middle":
-                ds_chirps_terc_time = xr.where(
-                    (ds_chirps_seas_time > lower_quant_seas)
-                    & (ds_chirps_seas_time <= upper_quant_seas),
-                    1,
-                    0,
-                )
-            else:
-                raise ValueError(f"Tercile {tercile} not defined")
 
-            ds_chirps_terc_time = ds_chirps_terc_time.expand_dims(
-                ["time", "tercile"]
-            ).assign_coords({"time": [time], "tercile": [tercile]})
+                if k == 0:
+                    ds_chirps_terc_time = ds_chirps_terc_ltime.copy()
+                else:
+                    ds_chirps_terc_time = xr.concat(
+                        [ds_chirps_terc_time, ds_chirps_terc_ltime],
+                        dim="ltime",
+                    )
 
             if i == 0:
                 ds_chirps_terc = ds_chirps_terc_time.copy()
@@ -890,7 +755,12 @@ def chirps_tercile_probs(ds_chirps, quantiles_seas):
 # Iri
 
 
-def iri_terciles_create(country_config, geobb, only_dominant=True):
+def iri_terciles_create(
+    country_config,
+    geobb,
+    only_dominant=True,
+    verbose=True,
+):
     """
     Download and process IRI data for a given country and region.
 
@@ -900,104 +770,32 @@ def iri_terciles_create(country_config, geobb, only_dominant=True):
 
     Inputs
     --------
-    country_config (dict): A dictionary containing the configuration for the 
+    country_config (dict): A dictionary containing the configuration for the
         desired country.
-    geobb (GeoBoundingBox): An object that defines the bounding box for the 
+    geobb (GeoBoundingBox): An object that defines the bounding box for the
         desired region.
-    only_dominant (bool): If True, only the dominant crop is used in the 
+    only_dominant (bool): If True, only the dominant crop is used in the
         calculations.
+    verbose (bool): If True, print details on the process.
 
     Returns
     --------
-    tercile_probs (xr.Dataset): A dataset containing the tercile probabilities 
+    tercile_probs (xr.Dataset): A dataset containing the tercile probabilities
         for each month.
     """
-    print("Download and process data...")
+    if verbose:
+        print("Download and process data...")
     iri_monthly = iri_download_and_process(
         country_config, geobb, only_dominant=only_dominant
     )
-    print("Load data...")
+    if verbose:
+        print("Load data...")
     ds_iri = iri_load(iri_monthly, only_dominant=only_dominant)
-    return iri_tercile_probs(ds_iri, only_dominant=only_dominant)
-
-
-def iri_terciles_plot(ds_iri_terciles, time):
-    """
-    Create a plot of the precipitation terciles for the given time using the
-    IRI dataset.
-
-    Inputs
-    -------
-    ds_iri_terciles (xarray Dataset): The IRI dataset.
-    time (str): The time for which the plot is to be created.
-
-    Returns
-    --------
-    fig (matplotlib Figure): The matplotlib figure object of the created plot.
-    """
-    fig, ax1, ax2, ax3, ax4 = create_fig()
-    (
-        norm0,
-        norm1,
-        norm2,
-        discrete_cmap0,
-        discrete_cmap1,
-        discrete_cmap2,
-        bounds,
-    ) = create_cmaps()
-
-    c0 = (
-        ds_iri_terciles.isel(tercile=0, drop=True)
-        .sel(time=time)
-        .tprate.plot.pcolormesh(
-            ax=ax4, add_colorbar=False, cmap=discrete_cmap0, norm=norm0
-        )
-    )
-    c1 = (
-        ds_iri_terciles.isel(tercile=1, drop=True)
-        .sel(time=time)
-        .tprate.plot.pcolormesh(
-            ax=ax4, add_colorbar=False, cmap=discrete_cmap1, norm=norm1
-        )
-    )
-    c2 = (
-        ds_iri_terciles.isel(tercile=2, drop=True)
-        .sel(time=time)
-        .tprate.plot.pcolormesh(
-            ax=ax4, add_colorbar=False, cmap=discrete_cmap2, norm=norm2
-        )
-    )
-
-    cbar0 = fig.colorbar(
-        c0,
-        cax=ax3,
-        boundaries=bounds,
-        spacing="proportional",
-        orientation="horizontal",
-        label="Upper",
-    )
-    cbar1 = fig.colorbar(
-        c1,
-        cax=ax2,
-        boundaries=bounds,
-        spacing="proportional",
-        orientation="horizontal",
-        label="Middle",
-    )
-    cbar2 = fig.colorbar(
-        c2,
-        cax=ax1,
-        boundaries=bounds,
-        spacing="proportional",
-        orientation="horizontal",
-        label="Lower",
-    )
-
-    cbar0.ax.xaxis.set_label_position("top")
-    cbar1.ax.xaxis.set_label_position("top")
-    cbar2.ax.xaxis.set_label_position("top")
-
-    return fig
+    ds_iri.coords["ltime"] = ds_iri.coords["ltime"].astype(int).astype(str)
+    iri_probs = iri_tercile_probs(ds_iri, only_dominant=only_dominant)
+    if verbose:
+        print("Done!")
+    return iri_probs
 
 
 def iri_download_and_process(country_config, geobb, only_dominant=True):
@@ -1018,40 +816,37 @@ def iri_load(iri_monthly, only_dominant=True):
     """
     Load IRI data.
 
-    Rename the coordinates of the input dataset and return a subset of the 
-    data if `only_dominant` is True, otherwise assign new coordinates and 
+    Rename the coordinates of the input dataset and return a subset of the
+    data if `only_dominant` is True, otherwise assign new coordinates and
     return a different subset of the data.
 
     Inputs
     ------
     iri_monthly (xarray.Dataset): A dataset with the monthly IRI data.
-    only_dominant (bool, optional): Whether to return only the dominant 
+    only_dominant (bool, optional): Whether to return only the dominant
         tercile probability rates. Defaults to True.
 
     Returns
     -------
-    ds_iri (xarray.Dataset): The input dataset with the renamed coordinates and 
-        a subset of the data according to the specified conditions. 
-        If only_dominant is True, then it returns the dataset with coordinates 
-        longitude, latitude, time and tprate. If only_dominant is False, 
-        then it returns the dataset with coordinates longitude, latitude, 
+    ds_iri (xarray.Dataset): The input dataset with the renamed coordinates and
+        a subset of the data according to the specified conditions.
+        If only_dominant is True, then it returns the dataset with coordinates
+        longitude, latitude, time and tprate. If only_dominant is False,
+        then it returns the dataset with coordinates longitude, latitude,
         time, tprate and tercile.
 
     """
     ds_iri = iri_monthly.load()
     if only_dominant:
-        return (
-            ds_iri.rename(
-                {
-            "X": "longitude", 
-            "Y": "latitude", 
-            "F": "time", 
-            "dominant": "tprate"
+        return ds_iri.rename(
+            {
+                "X": "longitude",
+                "Y": "latitude",
+                "F": "time",
+                "L": "ltime",
+                "dominant": "tprate",
             }
-            )
-            .drop_vars("spatial_ref")
-            .sel(L=3, drop=True)
-        )
+        ).drop_vars("spatial_ref")
     else:
         return (
             ds_iri.rename(
@@ -1059,12 +854,12 @@ def iri_load(iri_monthly, only_dominant=True):
                     "X": "longitude",
                     "Y": "latitude",
                     "F": "time",
+                    "L": "ltime",
                     "C": "tercile",
                     "prob": "tprate",
                 }
             )
             .drop_vars("spatial_ref")
-            .sel(L=3, drop=True)
             .assign_coords({"tercile": ["lower", "middle", "upper"]})
         )
 
@@ -1074,7 +869,7 @@ def iri_tercile_probs(ds_iri, only_dominant=True):
     Calculate the tercile probabilities of a given dataset of IRI.
 
     Calculate probabilities for the upper, middle, and lower terciles, based on
-    the seasonal data. If only_dominant=True, return only the dominant tercile, 
+    the seasonal data. If only_dominant=True, return only the dominant tercile,
     which is the one with the highest probability for each time step.
 
     Inputs
@@ -1091,27 +886,22 @@ def iri_tercile_probs(ds_iri, only_dominant=True):
         tercile for each time step.
     """
     ds_iri_seas = from_monthly_to_seasonal(
-        ds_iri, 
-        retain_year=True, 
-        iri_data=True
-        )
+        ds_iri, retain_year=True, iri_data=True
+    )
 
     if not only_dominant:
         ds_iri_seas["tprate"] = ds_iri_seas["tprate"] / 100
         return ds_iri_seas
 
     for j, tercile in enumerate(["upper", "middle", "lower"]):
-
         if tercile == "lower":
             ds_iri_terc = xr.where(
                 ds_iri_seas <= -35, abs(ds_iri_seas.tprate) * 0.01, np.nan
             )
         elif tercile == "middle":
             ds_iri_terc = xr.where(
-                (ds_iri_seas > -35) & (ds_iri_seas <= 35), 
-                1, 
-                np.nan
-                )
+                (ds_iri_seas > -35) & (ds_iri_seas <= 35), 1, np.nan
+            )
         elif tercile == "upper":
             ds_iri_terc = xr.where(
                 ds_iri_seas > 35, abs(ds_iri_seas.tprate) * 0.01, np.nan
@@ -1127,14 +917,14 @@ def iri_tercile_probs(ds_iri, only_dominant=True):
             ds_iri_terciles = ds_iri_terc.copy()
         else:
             ds_iri_terciles = xr.concat(
-                [ds_iri_terciles, ds_iri_terc], 
-                dim="tercile"
-                )
+                [ds_iri_terciles, ds_iri_terc], dim="tercile"
+            )
 
     return ds_iri_terciles
 
 
 # Ecmwf
+
 
 def ecmwf_terciles_create(
     country_config,
@@ -1143,6 +933,7 @@ def ecmwf_terciles_create(
     adapt_coordinates=False,
     ds_ref=None,
     method="linear",
+    verbose=True,
 ):
     """
     Download and process ECMWF data to create tercile probabilities.
@@ -1161,17 +952,20 @@ def ecmwf_terciles_create(
         Required if adapt_coordinates is True.
     method (str): interpolation method to use when adapting the coordinates.
         Default is 'linear'.
+    verbose (bool): If True, print details on the process.
 
     Returns
     --------
-    tercile_probs (xarray.Dataset): tercile probabilities for the forecast 
+    tercile_probs (xarray.Dataset): tercile probabilities for the forecast
         data.
     """
     if adapt_coordinates:
         geobb, geobb_original = increase_box(geobb)
-    print("Download and process data...")
-    ecmwf_download_and_process(country_config, geobb, download=download)
-    print("Load data...")
+    if verbose:
+        print("Download and process data...")
+    ecmwf_download_and_process(geobb, download=download)
+    if verbose:
+        print("Load data...")
     ds_ecmwf_hindcast, ds_ecmwf_forecast = ecmwf_load()
     if adapt_coordinates:
         print("Adapt coordinates...")
@@ -1193,115 +987,28 @@ def ecmwf_terciles_create(
             method=method,
         )
         ds_ecmwf_hindcast = restrict_to_geobb(
-            ds_ecmwf_hindcast, 
-            geobb_original
-            )
+            ds_ecmwf_hindcast, geobb_original
+        )
         ds_ecmwf_forecast = restrict_to_geobb(
-            ds_ecmwf_forecast, 
-            geobb_original
-            )
-    print("Create climatology...")
+            ds_ecmwf_forecast, geobb_original
+        )
+    if verbose:
+        print("Create climatology...")
     ds_ecmwf_seas_reference = ecmwf_create_reference(ds_ecmwf_hindcast)
-    print("Calculate quantiles...")
+    if verbose:
+        print("Calculate quantiles...")
     ecmwf_quantiles_seas = ecmwf_quantile_boundaries(
-        ds_ecmwf_seas_reference, 
-        seasons
-        )
-    print("Calculate tercile probabilities...")
-    return ecmwf_tercile_probs(ds_ecmwf_forecast, ecmwf_quantiles_seas)
-
-
-def ecmwf_terciles_plot(ds_ecmwf_terciles, time):
-    """
-    Create a pcolormesh plot of ECMWF tercile categories for a given time.
-
-    This function creates a plot with three different color maps, one for each
-    tercile category (lower, middle, and upper). The plot shows the tercile
-    category with the highest probability for a given time.
-
-    Inputs
-    ------
-    ds_ecmwf_terciles (xarray.Dataset): A dataset containing ECMWF tercile
-        categories.
-    time (str or datetime-like): A string or datetime-like object representing
-        the time for which to create the plot.
-
-    Returns
-    -------
-    fig (matplotlib.figure.Figure): A matplotlib figure object containing the
-        tercile plot.
-    """
-    max_index = ds_ecmwf_terciles.argmax("tercile")
-
-    fig, ax1, ax2, ax3, ax4 = create_fig()
-    (
-        norm0,
-        norm1,
-        norm2,
-        discrete_cmap0,
-        discrete_cmap1,
-        discrete_cmap2,
-        bounds,
-    ) = create_cmaps()
-
-    c0 = (
-        ds_ecmwf_terciles.isel(tercile=0, drop=True)
-        .where(max_index == 0)
-        .sel(time=time)
-        .tprate.plot.pcolormesh(
-            ax=ax4, add_colorbar=False, cmap=discrete_cmap0, norm=norm0
-        )
+        ds_ecmwf_seas_reference, seasons
     )
-    c1 = (
-        ds_ecmwf_terciles.isel(tercile=1, drop=True)
-        .where(max_index == 1)
-        .sel(time=time)
-        .tprate.plot.pcolormesh(
-            ax=ax4, add_colorbar=False, cmap=discrete_cmap1, norm=norm1
-        )
-    )
-    c2 = (
-        ds_ecmwf_terciles.isel(tercile=2, drop=True)
-        .where(max_index == 2)
-        .sel(time=time)
-        .tprate.plot.pcolormesh(
-            ax=ax4, add_colorbar=False, cmap=discrete_cmap2, norm=norm2
-        )
-    )
-
-    cbar0 = fig.colorbar(
-        c0,
-        cax=ax3,
-        boundaries=bounds,
-        spacing="proportional",
-        orientation="horizontal",
-        label="Upper",
-    )
-    cbar1 = fig.colorbar(
-        c1,
-        cax=ax2,
-        boundaries=bounds,
-        spacing="proportional",
-        orientation="horizontal",
-        label="Middle",
-    )
-    cbar2 = fig.colorbar(
-        c2,
-        cax=ax1,
-        boundaries=bounds,
-        spacing="proportional",
-        orientation="horizontal",
-        label="Lower",
-    )
-
-    cbar0.ax.xaxis.set_label_position("top")
-    cbar1.ax.xaxis.set_label_position("top")
-    cbar2.ax.xaxis.set_label_position("top")
-
-    return fig
+    if verbose:
+        print("Calculate tercile probabilities...")
+    ecmwf_probs = ecmwf_tercile_probs(ds_ecmwf_forecast, ecmwf_quantiles_seas)
+    if verbose:
+        print("Done!")
+    return ecmwf_probs
 
 
-def ecmwf_download_and_process(country_config, geobb, download=False):
+def ecmwf_download_and_process(geobb, download=False):
     """
     Download ECMWF forecast and hindcast prec data and store as netcdf files.
 
@@ -1311,52 +1018,72 @@ def ecmwf_download_and_process(country_config, geobb, download=False):
     Inputs
     ------
     country_config (dict): A dictionary with configuration parameters for a
-        specific country. 
+        specific country.
     geobb (GeoBoundingBox): An instance of the `GeoBoundingBox` class
-        specifying the bounding box coordinates. 
+        specifying the bounding box coordinates.
     download (bool): Flag indicating whether to download the data or not.
     """
     if download:
-
         area = [geobb.lat_max, geobb.lon_min, geobb.lat_min, geobb.lon_max]
 
         c = cdsapi.Client()
 
-        data_request_netcdf = {
-            "format": "netcdf",
-            "originating_centre": "ecmwf",
-            "system": "5",
-            "variable": "total_precipitation",
-            "product_type": "monthly_mean",
-            "year": [f"{d}" for d in range(1993, 2017)],
-            "month": [f"{d:02d}" for d in range(1, 13)],
-            "leadtime_month": "3",
-            "area": area,
-        }
+        leadtimes = [f"{d}" for d in range(1, 5)]
 
-        c.retrieve(
-            "seasonal-monthly-single-levels",
-            data_request_netcdf,
-            f"data/ecmwf-hindcast-total.nc",
+        for leadtime_month in leadtimes:
+            data_request_netcdf = {
+                "format": "netcdf",
+                "originating_centre": "ecmwf",
+                "system": "5",
+                "variable": "total_precipitation",
+                "product_type": "monthly_mean",
+                "year": [f"{d}" for d in range(1981, 2023)],
+                "month": [f"{d:02d}" for d in range(1, 13)],
+                "leadtime_month": leadtime_month,
+                "area": area,
+            }
+
+            c.retrieve(
+                "seasonal-monthly-single-levels",
+                data_request_netcdf,
+                f"data/ecmwf-total-leadtime-{leadtime_month}.nc",
+            )
+
+        range_time = [
+            max(
+                [
+                    xr.open_dataset(
+                        f"data/ecmwf-total-leadtime-{lt}.nc"
+                    ).time.values.min()
+                    for lt in leadtimes
+                ]
+            ),
+            min(
+                [
+                    xr.open_dataset(
+                        f"data/ecmwf-total-leadtime-{lt}.nc"
+                    ).time.values.max()
+                    for lt in leadtimes
+                ]
+            ),
+        ]
+
+        for i, lt in enumerate(leadtimes):
+            ds = (
+                xr.open_dataset(f"data/ecmwf-total-leadtime-{lt}.nc")
+                .sel(time=slice(str(range_time[0]), str(range_time[1])))
+                .expand_dims("ltime")
+                .assign_coords({"ltime": [lt]})
+            )
+            if i == 0:
+                ds_total = ds.copy()
+            else:
+                ds_total = xr.concat([ds_total, ds], dim="ltime")
+
+        ds_total.sel(time=slice("1993-01-01", "2017-12-01")).to_netcdf(
+            "data/ecmwf-total-hindcast.nc"
         )
-
-        data_request_netcdf = {
-            "format": "netcdf",
-            "originating_centre": "ecmwf",
-            "system": "5",
-            "variable": "total_precipitation",
-            "product_type": "monthly_mean",
-            "year": [f"{d}" for d in range(1981, 2023)],
-            "month": [f"{d:02d}" for d in range(1, 13)],
-            "leadtime_month": "3",
-            "area": area,
-        }
-
-        c.retrieve(
-            "seasonal-monthly-single-levels",
-            data_request_netcdf,
-            f"data/ecmwf-forecast-total.nc",
-        )
+        ds_total.to_netcdf("data/ecmwf-total-forecast.nc")
 
 
 def ecmwf_load():
@@ -1370,8 +1097,8 @@ def ecmwf_load():
     ds_ecmwf_hindcast (xarray Dataset): ECMWF hindcast dataset.
     ds_ecmwf_forecast (xarray Dataset): ECMWF forecast dataset.
     """
-    ds_ecmwf_hindcast = xr.open_dataset("data/ecmwf-hindcast-total.nc")
-    ds_ecmwf_forecast = xr.open_dataset("data/ecmwf-forecast-total.nc")
+    ds_ecmwf_hindcast = xr.open_dataset("data/ecmwf-total-hindcast.nc")
+    ds_ecmwf_forecast = xr.open_dataset("data/ecmwf-total-forecast.nc")
     return ds_ecmwf_hindcast, ds_ecmwf_forecast
 
 
@@ -1424,9 +1151,8 @@ def ecmwf_quantile_boundaries(ds_ecmwf_seas_reference, seasons):
             quantiles_seas = quant_seas.copy()
         else:
             quantiles_seas = xr.concat(
-                [quantiles_seas, quant_seas], 
-                dim="time"
-                )
+                [quantiles_seas, quant_seas], dim="time"
+            )
     return quantiles_seas
 
 
@@ -1447,33 +1173,27 @@ def ecmwf_tercile_probs(ds_ecmwf_forecast, quantiles_seas):
     Returns
     --------
     ds_ecmwf_terciles (xarray.Dataset): A dataset of the probability of the
-        forecast falling within each tercile (lower, middle, and upper) for 
+        forecast falling within each tercile (lower, middle, and upper) for
         each season.
     """
     ds_ecmwf_seas = from_monthly_to_seasonal(
-        ds_ecmwf_forecast, 
-        retain_year=True
-        )
+        ds_ecmwf_forecast, retain_year=True
+    )
 
     number_list = list(range(51))
     number_array = xr.DataArray(number_list, dims=["number"])
 
     for j, tercile in enumerate(["upper", "middle", "lower"]):
-
         for i, time in enumerate(ds_ecmwf_seas.time.values.tolist()):
-
             lower_quant_seas = quantiles_seas.sel(
-                quantile=0.33, drop=True).sel(
-                time=time.split("-")[0], drop=True
-            )
+                quantile=0.33, drop=True
+            ).sel(time=time.split("-")[0], drop=True)
             lower_quant_seas_tiled = xr.concat(
                 [lower_quant_seas] * len(number_array), dim="number"
             ).assign_coords({"number": list(range(51))})
             upper_quant_seas = quantiles_seas.sel(
                 quantile=0.67, drop=True
-                ).sel(
-                time=time.split("-")[0], drop=True
-            )
+            ).sel(time=time.split("-")[0], drop=True)
             upper_quant_seas_tiled = xr.concat(
                 [upper_quant_seas] * len(number_array), dim="number"
             ).assign_coords({"number": list(range(51))})
@@ -1523,3 +1243,589 @@ def ecmwf_tercile_probs(ds_ecmwf_forecast, quantiles_seas):
             )
 
     return ds_ecmwf_terciles
+
+
+# Scores
+
+
+def compute_scores(
+    ds_chirps_tercile_dominant,
+    ds_iri_tercile_dominant,
+    ds_ecmwf_tercile_dominant,
+    allign_timeframes,
+    verbose=True,
+):
+    """
+    Compute accuracy and F1 score metrics for forecasted and observational
+    precipitation data.
+
+    Inputs
+    --------
+    ds_chirps_tercile_dominant (xarray.Dataset): A dataset containting the
+        dominant tercile and the associated probability (always set to 1 as
+        this is observational data) for CHIRPS data, for each latitude,
+        longitude, season and lead time.
+    ds_iri_tercile_dominant (xarray.Dataset): A dataset containting the
+        dominant tercile and the associated probability for IRI data, for each
+        latitude, longitude, season and lead time.
+    ds_ecmwf_tercile_dominant (xarray.Dataset): A dataset containting the
+        dominant tercile and the associated probability for ECMWF data, for
+        each latitude, longitude, season and lead time.
+    allign_timeframes (bool): A flag indicating whether the same timeframe
+        should be considered for both datasets.
+    verbose (bool): If True, print details on the process.
+
+    Returns
+    --------
+    xr.Dataset: A dataset containing the accuracy and F1 score metrics for
+    different forecast products, seasons, and thresholds.
+    """
+    # Number of points under which predicted and true dataset will not be
+    # compared and accuracy and F1 score will be set to zero
+    tolerance = 4
+
+    # Initiate score array
+    score_array = {}
+
+    # Loop over metrics
+    for metric in ["accuracy", "f1 score"]:
+        if verbose:
+            print(f"Metrics: {metric}")
+
+        # Loop over forecast products
+        for d, data in enumerate(["iri", "ecmwf"]):
+            if verbose:
+                print(f"Dataset: {data}")
+
+            # Loop over relevant seasons
+            for s, season in enumerate(["MJJ", "JJA", "JAS", "ASO"]):
+                if verbose:
+                    print(f"Season: {season}")
+
+                # Choose dataset
+                if data == "iri":
+                    forecast_dataset = ds_iri_tercile_dominant.copy()
+                    second_forecast = ds_ecmwf_tercile_dominant.copy()
+                else:
+                    forecast_dataset = ds_ecmwf_tercile_dominant.copy()
+                    second_forecast = ds_iri_tercile_dominant.copy()
+
+                chirps_dataset = ds_chirps_tercile_dominant.copy()
+
+                # Restrict dataset to season
+                forecast_dataset = forecast_dataset.sel(
+                    time=forecast_dataset["time"].str.contains(season)
+                )
+                second_forecast = second_forecast.sel(
+                    time=second_forecast["time"].str.contains(season)
+                )
+
+                # Restrict chirps dataset to time points (season-year) present
+                # in the forecast dataset
+                chirps_dataset = chirps_dataset.sel(
+                    time=chirps_dataset["time"].isin(forecast_dataset["time"])
+                )
+
+                if allign_timeframes:
+                    chirps_dataset = chirps_dataset.sel(
+                        time=chirps_dataset["time"].isin(
+                            second_forecast["time"]
+                        )
+                    )
+
+                    forecast_dataset = forecast_dataset.sel(
+                        time=forecast_dataset["time"].isin(
+                            second_forecast["time"]
+                        )
+                    )
+
+                # Create masks for chirps and forecast (NaN values are replaced
+                # by -999)
+                mask_chirps = np.asarray(chirps_dataset.terc_prob.fillna(-999))
+                mask_forecast = np.asarray(
+                    forecast_dataset.terc_prob.fillna(-999)
+                )
+
+                # Threshold for tercile probabilities
+                threshold_num_list = [np.nan, np.nan] + [
+                    t for t in np.arange(0.3, 0.9, 0.1)
+                ]
+                threshold_str_list = [
+                    "Any dominant tercile",
+                    "Lower tercile dominant",
+                ] + [
+                    f"Lower tercile, probability greater than {t:.1f}"
+                    for t in threshold_num_list[2:]
+                ]
+
+                # Loop over thresholds
+                for t, (threshold, threshold_label) in enumerate(
+                    zip(threshold_num_list, threshold_str_list)
+                ):
+                    # 'Any dominant tercile': For the forecasted precipitation
+                    # data, a true realisation is defined as the dominant
+                    # tercile being (i) the lower, (ii) the middle or (iii) the
+                    # upper one, and for the observational data it is
+                    # determined by the precipation value falling,
+                    # respectively, in (i) the lower, (ii) the middle or
+                    # (iii) the upper tercile.
+                    if t == 0:
+                        forecast = forecast_dataset.dominant_terc
+                        chirps = chirps_dataset.dominant_terc
+                    # 'Lower tercile dominant': For the forecasted
+                    # precipitation data, a true realisation is defined as the
+                    # dominant tercile being the lower one, and for the
+                    # observational data it is determined by the precipitation
+                    # value falling in the lower tercile.
+                    elif t == 1:
+                        forecast = forecast_dataset.dominant_terc.where(
+                            forecast_dataset.dominant_terc == "lower",
+                            "not_lower",
+                        )
+                        chirps = chirps_dataset.dominant_terc.where(
+                            chirps_dataset.dominant_terc == "lower",
+                            "not_lower",
+                        )
+                    # 'Lower tercile, probability greater than ...': For the
+                    # forecasted precipitation data, a true realisation is
+                    # defined as the tercile probability for the lower tercile
+                    # being greater than the given threshold, and for the
+                    # observational data it is determined by the precipitation
+                    # value falling in the lower tercile.
+                    else:
+                        forecast = xr.where(
+                            (forecast_dataset.terc_prob > threshold)
+                            & (forecast_dataset.dominant_terc == "lower"),
+                            1,
+                            0,
+                        )
+                        chirps = xr.where(
+                            chirps_dataset.dominant_terc == "lower", 1, 0
+                        )
+
+                    # Reapply the mask previously calculated
+                    forecast = forecast.where(
+                        (mask_chirps != -999) & (mask_forecast != -999)
+                    )
+                    chirps = chirps.where(
+                        (mask_chirps != -999) & (mask_forecast != -999)
+                    )
+
+                    # Create score array
+                    score = np.empty((np.shape(chirps)[1:]))
+                    score[:] = np.nan
+
+                    # Loop over latitude and longitude
+                    for k in range(np.shape(chirps)[1]):
+                        for i in range(np.shape(chirps)[2]):
+                            for j in range(np.shape(chirps)[3]):
+                                # Read values of ltime, lon and lat
+                                ltime = forecast.ltime.values[k]
+                                latitude = forecast.latitude.values[i]
+                                longitude = forecast.longitude.values[j]
+
+                                # Create time series for predicted (forecast)
+                                # and true (observations)
+                                y_pred = forecast.sel(
+                                    ltime=ltime,
+                                    latitude=latitude,
+                                    longitude=longitude,
+                                ).values
+                                y_true = chirps.sel(
+                                    ltime=ltime,
+                                    latitude=latitude,
+                                    longitude=longitude,
+                                ).values
+
+                                # Pair time series, and exclude nan values
+                                # (this is done to keep only non-nan values
+                                # and return nan in case there are not many
+                                # comparisons)
+                                y_pair = [
+                                    (x, y)
+                                    for (x, y) in zip(
+                                        list(y_true), list(y_pred)
+                                    )
+                                    if not pd.isna(x) and not pd.isna(y)
+                                ]
+
+                                # If the number of pairs is lower than the
+                                # tolerance, assign nan to the metric
+                                if len(y_pair) < tolerance:
+                                    score[k, i, j] = np.nan
+                                else:
+                                    # Re-extract time series
+                                    y_true = [p[0] for p in y_pair]
+                                    y_pred = [p[1] for p in y_pair]
+
+                                    # Calculate metrics
+                                    if metric == "accuracy":
+                                        score[k, i, j] = accuracy_score(
+                                            y_true, y_pred
+                                        )
+                                    elif metric == "f1 score":
+                                        score[k, i, j] = f1_score(
+                                            y_true, y_pred, average="weighted"
+                                        )
+
+                    # Initialise score dataArray
+                    score_thre = chirps.isel(time=0).drop("time").copy()
+
+                    # Assign score array to variable of the dataArray
+                    score_thre.data = score.copy()
+
+                    # Expand dimensions of the dataArray, to include other
+                    # coordinates. This is done to be able to create the final
+                    # dataArray.
+                    score_thre = score_thre.expand_dims(
+                        ["season", "threshold", "data"]
+                    ).assign_coords(
+                        {
+                            "season": [season],
+                            "threshold": [threshold_label],
+                            "data": [data],
+                        }
+                    )
+
+                    # At the first iteration, create a new dataArray, later
+                    # concatenate the dataArray with the one created in this
+                    # iteration.
+                    if t == 0:
+                        score_season = score_thre.copy()
+                    else:
+                        score_season = xr.concat(
+                            [score_season, score_thre], dim="threshold"
+                        )
+
+                # At the first iteration, create a new dataArray, later
+                # concatenate the dataArray with the one created in this
+                # iteration.
+                if s == 0:
+                    score_data = score_season.copy()
+                else:
+                    score_data = xr.concat(
+                        [score_data, score_season], dim="season"
+                    )
+
+            # At the first iteration, create a new dataArray, later concatenate
+            # the dataArray with the one created in this iteration
+            if d == 0:
+                score_array[metric] = score_data.copy()
+            else:
+                score_array[metric] = xr.concat(
+                    [score_array[metric], score_data], dim="data"
+                )
+
+    # Transform dict of dataArrays in dataset, with two variables
+    return xr.Dataset(score_array)
+
+
+# Aggregate scores
+
+
+def aggregate_scores(
+    score_dataset,
+    gdf,
+    method="pandas",
+):
+    """
+    Aggregates scores from a dataset based on the specified parameters.
+
+    Inputs
+    --------
+    score_dataset (xarray.Dataset): The dataset containing the scores.
+    gdf (geopandas.GeoDataFrame): The GeoDataFrame specifying the regions
+        for aggregation.
+    method (str, optional): The aggregation method to use ("pandas" or "xagg").
+        Defaults to "pandas". The aggregation with pandas evaluates whether
+        the center of a pixel is included in the geometry, whereas the one
+        done using xagg precisely calculates the portion of each pixel
+        contained in the polygon. Althoug the second method is more precise,
+        xagg cannot deal with nan values for different coordinates in a
+        dataset. Therefore, the pandas method should be used.
+
+    Returns
+    --------
+    aggregated_scores (pandas.DataFrame): The aggregated scores as a
+        DataFrame.
+    """
+    if method == "pandas":
+        return aggregate_scores_using_pandas(
+            score_dataset=score_dataset,
+            gdf=gdf,
+        )
+    else:
+        return aggregate_scores_using_xagg(
+            score_dataset=score_dataset,
+            gdf=gdf,
+        )
+
+
+def aggregate_scores_using_pandas(score_dataset, gdf):
+    """
+    Aggregates scores from a dataset using the pandas library.
+
+    Inputs
+    --------
+    score_dataset (xarray.Dataset): The dataset containing the scores.
+    gdf (geopandas.GeoDataFrame): The GeoDataFrame specifying the regions for
+        aggregation.
+
+    Returns
+    --------
+    aggregated_scores (pandas.DataFrame): The aggregated scores as a DataFrame.
+    """
+    score_df = score_dataset.to_dataframe().reset_index()
+
+    score_gdf = gpd.GeoDataFrame(
+        score_df,
+        geometry=gpd.points_from_xy(score_df.longitude, score_df.latitude),
+    )
+    score_gdf["sahel_strip"] = score_gdf.intersects(gdf.geometry[0])
+
+    results_df = (
+        score_gdf.groupby(["season", "data", "ltime", "threshold"])[
+            "accuracy", "f1 score"
+        ]
+        .mean()
+        .reset_index()
+    )
+
+    sorter = ["MJJ", "JJA", "JAS", "ASO"]
+    dummy = pd.Series(sorter, name="season").to_frame()
+    results_df = pd.merge(dummy, results_df, on="season", how="left")
+
+    return results_df
+
+
+def aggregate_scores_using_xagg(score_dataset, gdf):
+    """
+    Aggregates scores from a dataset using the xarray and xagg libraries.
+
+    Inputs
+    --------
+    score_dataset (xarray.Dataset): The dataset containing the scores.
+    gdf (geopandas.GeoDataFrame): The GeoDataFrame specifying the regions for
+        aggregation.
+
+    Returns
+    --------
+    aggregated_scores (pandas.DataFrame): The aggregated scores as a DataFrame.
+    """
+    # Calculate overlaps
+    weightmap = xa.pixel_overlaps(score_dataset, gdf)
+
+    # Aggregate
+    aggregated = xa.aggregate(score_dataset, weightmap)
+    aggregated_df = aggregated.to_dataframe()
+
+    aggregated_accuracy = (
+        score_dataset.isel(
+            latitude=0,
+            longitude=1,
+        )
+        .drop(["latitude", "longitude"])["accuracy"]
+        .copy()
+    )
+
+    # Assign score array to variable of the dataArray
+    aggregated_accuracy.data = aggregated_df["accuracy0"].iloc[0].copy()
+
+    aggregated_f1score = (
+        score_dataset.isel(
+            latitude=0,
+            longitude=1,
+        )
+        .drop(["latitude", "longitude"])["f1 score"]
+        .copy()
+    )
+
+    # Assign score array to variable of the dataArray
+    aggregated_f1score.data = aggregated_df["f1 score0"].iloc[0].copy()
+
+    aggregated_ds = xr.merge([aggregated_accuracy, aggregated_f1score])
+
+    return aggregated_ds.to_dataframe().reset_index()
+
+
+# Plotting
+
+
+def plot_tercile(
+    ds,
+    ltime,
+    label,
+):
+    """
+    Create an interactive plot of the tercile probabilities for a specific
+    lead time. The season can be changed in the plot.
+
+    Inputs
+    --------
+    ds (xr.Dataset): Dataset containing tercile probabilities and dominant
+    tercile information.
+    ltime (str): Lead time.
+    label (str): Label for the plot.
+
+    Returns
+    --------
+    hvplot.core.data.Plot: Interactive plot of tercile probabilities.
+    """
+    ds_vis = xr.where(ds.dominant_terc == "upper", ds.terc_prob, -ds.terc_prob)
+
+    ds_vis = xr.where(ds.dominant_terc == "middle", 0, ds_vis).sel(
+        ltime=ltime, drop=True
+    )
+
+    map_plot = ds_vis.hvplot(
+        groupby="time",
+        widget_type="scrubber",
+        x="longitude",
+        y="latitude",
+        coastline=True,
+        features=["borders"],
+        clim=(-1, 1),
+        geo=True,
+        widget_location="bottom",
+        cmap="BrBG",
+        width=600,
+        height=500,
+        label=f"{label},",
+    )
+
+    return map_plot
+
+
+def plot_scores(score_dataset, season, ltime, dataset, metric):
+    """
+    Plots scores from a dataset based on the specified parameters.
+
+    Inputs
+    --------
+    score_dataset (xarray.Dataset): The dataset containing the scores.
+    season (str): The season to plot scores for.
+    ltime (str): The lead time to plot scores for.
+    dataset (str): The data provider for the scores ("IRI" or "ECMWF").
+    metric (str): The metric to plot.
+
+    Returns
+    --------
+    None, but an interactive plot is generated.
+    """
+
+    data = score_dataset.sel(
+        season=season, data=dataset.lower(), ltime=ltime
+    ).drop(["season", "data", "ltime"])
+    dataset = gv.Dataset(
+        data=data,
+        kdims=["longitude", "latitude", "threshold"],
+        vdims=metric.lower(),
+        label=f"Metric: {metric}, Dataset: {dataset}\n"
+        + f"Season: {season}, Lead time: {ltime},",
+        crs=ccrs.PlateCarree(),
+    )
+    cmax = 1
+    cmin = 0
+    cmap_list = list(np.arange(cmin, cmax + 1, 0.1))
+    cmap_dict = {n: f"{n:.1f}" for n in cmap_list}
+    images = dataset.to(gv.Image)
+    color_levels = len(cmap_list)
+    display(
+        images.opts(
+            cmap="viridis",
+            colorbar=True,
+            width=600,
+            height=500,
+            clim=(cmin, cmax),
+            tools=["hover"],
+            color_levels=color_levels,
+            colorbar_opts={
+                "major_label_overrides": cmap_dict,
+                "ticker": FixedTicker(ticks=cmap_list),
+            },
+        )
+        * gf.borders
+    )
+
+
+def plot_aggregated_scores_barplot(
+    df, timeframe, score_metric, threshold, leadtime
+):
+    """
+    Plots aggregated scores as a bar plot.
+
+    Inputs
+    --------
+    df (pandas.DataFrame): The DataFrame containing the aggregated scores.
+    timeframe (str): "full timeframe" or "alligned timeframe".
+    score_metric (str): The score metric to plot ("accuracy" or "f1 score").
+    threshold (float): The threshold value.
+    leadtime (str): The lead time.
+
+    Returns
+    --------
+    None, but a plot is generated.
+    """
+    df = df[(df["threshold"] == threshold) & (df["ltime"] == leadtime)]
+
+    acc_df = df[["season", "data", score_metric]]
+    acc_df = (
+        acc_df[acc_df["data"] == "ecmwf"]
+        .rename(columns={score_metric: "ecmwf"})
+        .merge(
+            acc_df[acc_df["data"] == "iri"].rename(
+                columns={score_metric: "iri"}
+            ),
+            on="season",
+        )
+    )
+    if score_metric == "accuracy":
+        acc_df["baseline"] = 5 / 9
+    else:
+        acc_df["baseline"] = 1 / 3
+
+    ax = (
+        acc_df[["season", "ecmwf", "iri", "baseline"]]
+        .round(2)
+        .plot(x="season", kind="bar")
+    )
+    ax.set_ylim([0.0, 1])
+    plot_title = (
+        f"{score_metric.capitalize()} ({timeframe}, "
+        f"{threshold}, leadtime: {leadtime})"
+    )
+    ax.set_title(plot_title)
+    for container in ax.containers:
+        ax.bar_label(container)
+
+
+def plot_aggregated_scores_heatmap(
+    df,
+    dataset,
+    season,
+):
+    """
+    Plots aggregated scores as a heatmap.
+
+    Inputs
+    --------
+    df (pandas.DataFrame): The DataFrame containing the aggregated scores.
+    dataset (str): The dataset for which scores are plotted.
+    season (str): The season for which scores are plotted.
+
+    Returns
+    --------
+    None, but a plot is generated.
+    """
+    df_season = df[
+        (df["data"] == dataset) & (df["season"] == season)
+    ].reset_index(drop=True)[["ltime", "threshold", "f1 score"]]
+    df_pivoted = df_season.pivot(
+        index="threshold", columns="ltime", values="f1 score"
+    )
+
+    sns.heatmap(df_pivoted, annot=True, cmap="viridis")
+
+    plt.title(f"{dataset.capitalize()}, Metric: f1, season: {season}")
+    plt.xlabel("leadtime (months)")
+    plt.show()
