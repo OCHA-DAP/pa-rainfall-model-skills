@@ -5,6 +5,7 @@ geoviews==1.9.6
 hvplot==0.8.2
 matplotlib==3.7.0
 numpy==1.23.5
+notebook==6.5.2
 pandas==1.5.3
 python-dotenv==1.0.0
 seaborn==0.12.2
